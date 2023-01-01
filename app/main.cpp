@@ -28,6 +28,7 @@
 #include <string>
 #include <map>
 #include <limits>
+#include <memory>
 
 
 #include <stdio.h>
@@ -174,7 +175,7 @@ void doRSTUsageItem(const std::string &first, const std::string &second) {
 }
 
 void doUsage(void) {
-    bool usage = getenv("SIMULAVR_DOC_RST") == NULL;
+    bool usage = getenv("SIMULAVR_DOC_RST") == nullptr;
     
     if(usage) {
         std::cout << "AVR-Simulator Version " VERSION << std::endl << std::endl;
@@ -219,7 +220,6 @@ int main(int argc, char *argv[]) {
     int userinterface_flag = 0;
     unsigned long long fcpu = 4000000;
     unsigned long long maxRunTime = 0;
-    UserInterface *ui;
     
     unsigned long writeToPipeOffset = 0x20;
     unsigned long readFromPipeOffset = 0x21;
@@ -291,21 +291,21 @@ int main(int argc, char *argv[]) {
                 break;
             
             case 'a': // write to abort
-                if(!StringToUnsignedLong(optarg, &writeToAbort, NULL, 16)) {
+                if(!StringToUnsignedLong(optarg, &writeToAbort, nullptr, 16)) {
                     std::cerr << "writeToAbort is not a number" << std::endl;
                     exit(1);
                 }
                 break;
             
             case 'e': // write to exit
-                if(!StringToUnsignedLong(optarg, &writeToExit, NULL, 16)) {
+                if(!StringToUnsignedLong(optarg, &writeToExit, nullptr, 16)) {
                     std::cerr << "writeToExit is not a number" << std::endl;
                     exit(1);
                 }
                 break;
             
             case 'F':
-                if(!StringToUnsignedLongLong(optarg, &fcpu, NULL, 10)) {
+                if(!StringToUnsignedLongLong(optarg, &fcpu, nullptr, 10)) {
                     std::cerr << "frequency is not a number" << std::endl;
                     exit(1);
                 }
@@ -319,14 +319,14 @@ int main(int argc, char *argv[]) {
                 break;
 
             case 'l':
-                if(!StringToUnsignedLongLong( optarg, &linestotrace, NULL, 10)) {
+                if(!StringToUnsignedLongLong( optarg, &linestotrace, nullptr, 10)) {
                     std::cerr << "linestotrace is not a number" << std::endl;
                     exit(1);
                 }
                 break;
 
             case 'm':
-                if(!StringToUnsignedLongLong( optarg, &maxRunTime, NULL, 10)) {
+                if(!StringToUnsignedLongLong( optarg, &maxRunTime, nullptr, 10)) {
                     std::cerr << "maxRunTime is not a number" << std::endl;
                     exit(1);
                 }
@@ -364,7 +364,7 @@ int main(int argc, char *argv[]) {
                 break;
             
             case 'p':
-                if(!StringToUnsignedLong( optarg, &global_gdbserver_port, NULL, 10)) {
+                if(!StringToUnsignedLong( optarg, &global_gdbserver_port, nullptr, 10)) {
                     std::cerr << "GDB Server Port is not a number" << std::endl;
                     exit(1);
                 }
@@ -448,7 +448,7 @@ int main(int argc, char *argv[]) {
     }
 
     /* now we create the device and set device name and signature */
-    AvrDevice *dev1 = AvrFactory::instance().makeDevice(devicename.c_str());
+    std::unique_ptr<AvrDevice> dev1(AvrFactory::instance().makeDevice(devicename.c_str()));
     std::map<std::string, unsigned int>::iterator cur  = AvrNameToSignatureMap.find(devicename);
     if(cur != AvrNameToSignatureMap.end()) {
         // signature found
@@ -467,7 +467,7 @@ int main(int argc, char *argv[]) {
     }
     
     /* handle DumpTrace option */
-    SetDumpTraceArgs(tracer_opts, dev1);
+    SetDumpTraceArgs(tracer_opts, dev1.get());
     
     if(!gdbserver_flag && filename == "unknown") {
         std::cerr << "Specify either --file <executable> or --gdbserver (or --gdb-stdin)" << std::endl;
@@ -479,24 +479,24 @@ int main(int argc, char *argv[]) {
         avr_message("Add ReadFromPipe-Register at 0x%lx and read from file: %s",
                     readFromPipeOffset, readFromPipeFileName.c_str());
         dev1->ReplaceIoRegister(readFromPipeOffset,
-            new RWReadFromFile(dev1, "FREAD", readFromPipeFileName.c_str()));
+            new RWReadFromFile(dev1.get(), "FREAD", readFromPipeFileName.c_str()));
     }
     
     if(writeToPipeFileName != "") {
         avr_message("Add WriteToPipe-Register at 0x%lx and write to file: %s",
                     writeToPipeOffset, writeToPipeFileName.c_str());
         dev1->ReplaceIoRegister(writeToPipeOffset,
-            new RWWriteToFile(dev1, "FWRITE", writeToPipeFileName.c_str()));
+            new RWWriteToFile(dev1.get(), "FWRITE", writeToPipeFileName.c_str()));
     }
     
     if(writeToAbort) {
         avr_message("Add WriteToAbort-Register at 0x%lx", writeToAbort);
-        dev1->ReplaceIoRegister(writeToAbort, new RWAbort(dev1, "ABORT"));
+        dev1->ReplaceIoRegister(writeToAbort, new RWAbort(dev1.get(), "ABORT"));
     }
     
     if(writeToExit) {
         avr_message("Add WriteToExit-Register at 0x%lx", writeToExit);
-        dev1->ReplaceIoRegister(writeToExit, new RWExit(dev1, "EXIT"));
+        dev1->ReplaceIoRegister(writeToExit, new RWExit(dev1.get(), "EXIT"));
     }
     
     if(filename != "unknown" ) {
@@ -512,7 +512,7 @@ int main(int argc, char *argv[]) {
     }
     
     //if not gdb, the ui will be master controller :-)
-    ui = (userinterface_flag == 1) ? new UserInterface(7777) : NULL;
+    std::unique_ptr<UserInterface> ui ((userinterface_flag == 1) ? new UserInterface(7777) : nullptr);
     
     dev1->SetClockFreq(1000000000 / fcpu); // time base is 1ns!
     
@@ -523,7 +523,7 @@ int main(int argc, char *argv[]) {
     
     long steps = 0;
     if(gdbserver_flag == 0) { // no gdb
-        SystemClock::Instance().Add(dev1);
+        SystemClock::Instance().Add(dev1.get());
         if(maxRunTime == 0) {
             steps = SystemClock::Instance().Endless();
             std::cout << "SystemClock::Endless stopped" << std::endl
@@ -538,7 +538,7 @@ int main(int argc, char *argv[]) {
         Application::GetInstance()->PrintResults();
     } else { // gdb should be activated
         avr_message("Waiting for gdb connection ...");
-        GdbServer gdb1(dev1, global_gdbserver_port, global_gdb_debug, globalWaitForGdbConnection);
+        GdbServer gdb1(dev1.get(), global_gdbserver_port, global_gdb_debug, globalWaitForGdbConnection);
         SystemClock::Instance().Add(&gdb1);
         SystemClock::Instance().Endless();
         if(global_verbose_on) {
@@ -552,12 +552,8 @@ int main(int argc, char *argv[]) {
     
     if(coredumpfile != "unknown") {
         avr_message("write core dump file ...");
-        WriteCoreDump(coredumpfile, dev1);
+        WriteCoreDump(coredumpfile, dev1.get());
     }
-
-    // delete ui and device
-    delete ui;
-    delete dev1;
     
     return 0;
 }
