@@ -44,6 +44,8 @@
 #include "avrreadelf.h"
 #include "gdb/gdb.h"
 #include "ui/ui.h"
+#include "ui/serialrx.h"
+#include "ui/serialtx.h"
 #include "systemclock.h"
 #include "traceval.h"
 #include "string2.h"
@@ -141,6 +143,12 @@ std::vector<string_pair_t> newUsage = {
      "disable messages for bad I/O and memory references"},
     {"-l <number>, --linestotrace <number>",
      "maximum number of lines in each trace file. 0 means endless. Attention: if you use gdb & trace, please use always 0!"},
+    {"-b <number>, --baud-rate <number>",
+     "serial line baud rate"},
+    {"-r <file>, --rx-file <file>",
+     "bind device pin D0 to <file> via a RX serial line"},
+    {"-w <file>, --tx-file <file>",
+     "bind device pin D1 to <file> via a TX serial line"},
 
     {".",
      "VCD trace options"},
@@ -208,6 +216,9 @@ void doUsage(void) {
 int main(int argc, char *argv[]) {
     int c;
     bool gdbserver_flag = 0;
+    unsigned long baudRate = 115200;
+    std::string rxfile("-");
+    std::string txfile("-");
     std::string coredumpfile("unknown");
     std::string filename("unknown");
     std::string devicename("unknown");
@@ -259,12 +270,15 @@ int main(int argc, char *argv[]) {
             {"core-dump", 1, 0, 'C'},
             {"irqstatistic", 0, 0, 's'},
             {"help", 0, 0, 'h'},
+            {"baud-rate", 1, 0, 'b'},
+            {"rxfile", 1, 0, 'r'},
+            {"txfile", 1, 0, 'w'},
             {0, 0, 0, 0}
         };
         
         c = getopt_long(argc,
                         argv,
-                        "a:e:f:d:gGMm:p:t:uxyzhvnisF:R:W:VT:B:c:C:o:l:",
+                        "a:e:f:d:gGMm:p:t:uxyzhvnisF:R:W:VT:B:c:C:o:l:b:r:w:",
                         long_options,
                         &option_index);
         if(c == -1)
@@ -405,10 +419,28 @@ int main(int argc, char *argv[]) {
             case 's':
                 enableIRQStatistic = true;
                 break;
-            
+
             case 'C':
                 avr_message("Write core dump on exit to file: %s", optarg);
                 coredumpfile = optarg;
+                break;
+
+            case 'b':
+                if(!StringToUnsignedLong( optarg, &baudRate, nullptr, 10)) {
+                    std::cerr << "UART baud rate is not a number" << std::endl;
+                    exit(1);
+                }
+                avr_message("Set UART baud rate to %lu.", baudRate);
+                break;
+
+            case 'r':
+                avr_message("Connecting pin D1 as serial out to file %s.", optarg);
+                rxfile = optarg;
+                break;
+
+            case 'w':
+                avr_message("Connecting pin D0 as serial in to file %s.", optarg);
+                txfile = optarg;
                 break;
             
             default:
@@ -498,12 +530,32 @@ int main(int argc, char *argv[]) {
         avr_message("Add WriteToExit-Register at 0x%lx", writeToExit);
         dev1->ReplaceIoRegister(writeToExit, new RWExit(dev1.get(), "EXIT"));
     }
-    
+
     if(filename != "unknown" ) {
         dev1->Load(filename.c_str());
         dev1->Reset(); // reset after load data from file to activate fuses and lockbits
     }
-    
+
+    std::unique_ptr<Net> netrx, nettx;
+    std::unique_ptr<SerialRxFile> serialrx;
+    std::unique_ptr<SerialTxFile> serialtx;
+
+    // intialize serial device
+    if (baudRate > 0) {
+        netrx.reset(new Net());
+        nettx.reset(new Net());
+        serialrx.reset(new SerialRxFile(rxfile.c_str()));
+        serialtx.reset(new SerialTxFile(txfile.c_str()));
+
+        serialrx->SetBaudRate(baudRate);
+        netrx->Add(dev1->GetPin("D1"));
+        netrx->Add(serialrx->GetPin("rx"));
+
+        serialtx->SetBaudRate(baudRate);
+        nettx->Add(dev1->GetPin("D0"));
+        nettx->Add(serialtx->GetPin("tx"));
+    }
+
     //if we have a file we can check out for termination lines.
     std::vector<std::string>::iterator ii;
     for(ii = terminationArgs.begin(); ii != terminationArgs.end(); ii++) {

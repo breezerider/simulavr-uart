@@ -26,6 +26,10 @@
 #ifndef SERIALTX_H_INCLUDED
 #define SERIALTX_H_INCLUDED
 
+#ifdef WIN32
+#include <winnt.h>
+#endif
+
 #include "systemclocktypes.h"
 #include "ui.h"
 
@@ -63,6 +67,23 @@ class SerialTxBuffered: public SimulationMember {
         virtual void Send(unsigned char data);
         virtual void SetBaudRate(SystemClockOffset baud);
         virtual Pin* GetPin(const char *name); 
+};
+
+/** Reads  bytes from a file, a special file/com port or the console
+ *  and sends them to the device's UART. */
+class SerialTxFile: public SerialTxBuffered {
+    private:
+        // input file stream
+#ifndef WIN32
+        int fd;
+#else
+        HANDLE hFile;
+#endif
+    public:
+        SerialTxFile(const char *filename);
+        ~SerialTxFile();
+        bool Sending(void) const;
+        virtual int Step(bool &trueHwStep, SystemClockOffset *timeToNextStepIn_ns=0);
 };
 
 

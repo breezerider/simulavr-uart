@@ -26,6 +26,7 @@
 #ifndef SERIALRX_H_INCLUDED
 #define SERIALRX_H_INCLUDED
 
+#include <fstream>
 #include "systemclocktypes.h"
 #include "ui.h"
 #include "pinnotify.h"
@@ -79,6 +80,19 @@ class SerialRxBuffered: public SerialRxBasic{
  		unsigned char Get();
  		long Size();
  };
+
+
+/** Reads bits from device pins, reconstructs UART bytes and sends them to
+ *  a file, a special file/com port or the console. */
+class SerialRxFile: public SerialRxBasic {
+    private:
+        std::ofstream stream;
+    protected:
+        virtual void CharReceived(unsigned char c);
+    public:
+        SerialRxFile(const char *filename);
+        ~SerialRxFile();
+};
 
 
 /** Reads bits from device pins, reconstructs UART bytes and sends them to UI. */

@@ -23,6 +23,13 @@
  *  $Id$
  */
 
+#include <cstring>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <poll.h>
+
 #include "ui/serialtx.h"
 #include "systemclock.h"
 #include "string2.h"
@@ -107,7 +114,7 @@ void SerialTxBuffered::Send(unsigned char data)
 {
     inputBuffer.push_back(data); //write new char to input buffer
 
-    std::cerr << "TX: " << std::hex << data << " ";
+    //std::cerr << "TX: " << std::hex << data << " ";
     //if we not active, activate tx machine now
     if (txState==TX_DISABLED) {
         txState=TX_SEND_STARTBIT;
@@ -124,6 +131,94 @@ void SerialTxBuffered::SetHexInput(bool newValue){
 }
 
 
+// ===========================================================================
+// ===========================================================================
+// ===========================================================================
+
+
+
+SerialTxFile::SerialTxFile(const char *filename) {
+    if (std::strcmp(filename, "-") == 0)
+#ifndef WIN32
+        fd = fileno(stdin);
+#else
+        hFile = GetStdHandle(STD_INPUT_HANDLE);
+#endif
+    else
+#ifndef WIN32
+        fd = open(filename, O_RDONLY, O_CREAT);
+#else
+        hFile = CreateFile((LPCSTR)filename,
+                           GENERIC_READ,
+                           0,
+                           NULL,
+                           OPEN_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL,
+                           NULL);
+#endif
+#ifndef WIN32
+    if (fd < 0)
+#else
+    if (hFile == INVALID_HANDLE_VALUE)
+#endif
+        avr_error("failed to open the input file");
+    else {
+        Reset();
+
+        SystemClock::Instance().Add(this);
+    }
+}
+
+SerialTxFile::~SerialTxFile() {
+#ifndef WIN32
+    if ((fd != fileno(stdin)) &&
+        (fd >= 0))
+        close(fd);
+#else
+    if ((hFile != GetStdHandle(STD_INPUT_HANDLE)) &&
+        (hFile != INVALID_HANDLE_VALUE))
+        CloseHandle(hFile);
+#endif
+}
+
+bool SerialTxFile::Sending(void) const {
+    return (txState != TX_DISABLED);
+}
+
+int SerialTxFile::Step(bool &trueHwStep,
+                       SystemClockOffset *timeToNextStepIn_ns) {
+
+    if (Sending()) {
+        SerialTxBuffered::Step(trueHwStep, timeToNextStepIn_ns);
+    }
+
+#ifndef WIN32
+    pollfd cinfd[1];
+    cinfd[0].fd = fd;
+    cinfd[0].events = POLLIN;
+    if (poll(cinfd, 1, 0) > 0) {
+        unsigned char c;
+        if (read(fd, &c, 1) > 0) {
+            Send((unsigned char)c);
+        }
+    }
+#else
+    if (WaitForSingleObject(hFile, 0) == WAIT_OBJECT_0) {
+        unsigned char c, b;
+        if (ReadFile(hFile, &c, 1, &b, NULL)) {
+            Send((unsigned char)c);
+        }
+    }
+#endif
+
+    if ( ! Sending()) // may have changed with Step() or Send()
+        // Polling for new data every millisecond should be enough. If there's
+        // more than one byte waiting, they're accepted at every serial clock
+        // tick, which means, ten times faster than they can be sent.
+        *timeToNextStepIn_ns = (SystemClockOffset)1000000;
+
+    return 0;
+}
 
 // ===========================================================================
 // ===========================================================================

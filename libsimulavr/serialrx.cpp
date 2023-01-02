@@ -23,9 +23,13 @@
  *  $Id$
  */
 
+#include <iostream>
+#include <cstring>
+
 #include "ui/serialrx.h"
 #include "systemclock.h"
 #include "systemclocktypes.h"
+#include "avrerror.h"
 
 
 
@@ -142,6 +146,37 @@ unsigned char SerialRxBuffered::Get(){
 
 long SerialRxBuffered::Size(){
     return buffer.size();
+}
+
+
+// ===========================================================================
+// ===========================================================================
+// ===========================================================================
+
+
+SerialRxFile::SerialRxFile(const char *filename) {
+    if (std::strcmp(filename, "-") == 0)
+        stream.std::ostream::rdbuf(std::cout.rdbuf());
+    else
+        stream.open(filename);
+    if (stream.fail())
+        avr_error("failed to open the output file");
+    // Enable automatic flushing, hitting ctrl-c to
+    // end a simulation doesn't call destructors.
+    stream << std::unitbuf;
+}
+
+SerialRxFile::~SerialRxFile() {
+    if (stream.std::ostream::rdbuf() != std::cout.rdbuf())
+        stream.close();
+}
+
+void SerialRxFile::CharReceived(unsigned char c){
+    if (sendInHex) {
+        stream << "0x" << std::hex << (unsigned int)c << " ";
+    } else {
+        stream << c;
+    }
 }
 
 

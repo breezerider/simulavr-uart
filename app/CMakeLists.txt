@@ -1,7 +1,8 @@
 # build simulavr
 
 set(appSrcs dumpargs.cpp main.cpp gdbserver.cpp
-            ../libsimulavr/ui.cpp ../libsimulavr/mysocket.cpp)
+            ../libsimulavr/ui.cpp ../libsimulavr/mysocket.cpp
+            ../libsimulavr/serialtx.cpp ../libsimulavr/serialrx.cpp)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
